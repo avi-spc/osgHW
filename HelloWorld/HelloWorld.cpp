@@ -5,20 +5,134 @@
 #include <osg/Geode>
 #include <osg/ShapeDrawable>
 #include <osgDB\ReadFile>
-#include <osgGA/TrackballManipulator>
-#include <osgGA/StateSetManipulator>
-
-#include <osg/MatrixTransform>
-
-#include <osgGA/TrackballManipulator>
-#include <osgGA/FlightManipulator>
-#include <osgGA/DriveManipulator>
-#include <osgGA/KeySwitchMatrixManipulator>
-#include <osgGA/StateSetManipulator>
-#include <osgGA/AnimationPathManipulator>
-#include <osgGA/TerrainManipulator>
 
 osg::Group* root = new osg::Group;
+
+class FindGeoNamedNode :
+	public osg::NodeVisitor
+{
+public:
+	FindGeoNamedNode();
+	FindGeoNamedNode(const std::string name) :
+		osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
+	{
+		resultNode = NULL;
+		this->name = name;
+	}
+
+	virtual void apply(osg::Node& searchNode)
+	{
+		if (searchNode.getName() == name)
+		{
+			osg::Geometry* dynamicTry = dynamic_cast<osg::Geometry*>(&searchNode);
+
+			if (dynamicTry)
+			{
+				resultNode = dynamicTry;
+			}
+		}
+		traverse(searchNode);
+	}
+
+	osg::Geometry* getNode()
+	{
+		return resultNode;
+	}
+private:
+	osg::Geometry* resultNode;
+	std::string name;
+};
+
+class KeyboardModel : public osg::Referenced
+{
+public:
+	KeyboardModel(osg::Geometry* geom) : geo(geom) {}
+
+	void keyChange(int key, int virtualKey, int value);
+	osg::Geometry* geo;
+
+protected:
+
+	~KeyboardModel() {}
+
+	typedef std::map<int, osg::ref_ptr<osg::Switch> > KeyModelMap;
+	KeyModelMap _keyModelMap;
+
+};
+
+void KeyboardModel::keyChange(int key, int virtualKey, int value)
+{
+	//KeyModelMap::iterator itr = _keyModelMap.find(virtualKey);
+	if (value)
+	{
+		if (key == osgGA::GUIEventAdapter::KEY_Left)
+		{
+			osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile("Images/left.png");
+
+			std::cout << "left" << std::endl;
+
+			osg::StateSet* stateset = new osg::StateSet;
+
+			osg::Texture2D* texture = new osg::Texture2D;
+			texture->setImage(image);
+
+			stateset->setTextureAttributeAndModes(0, texture, osg::StateAttribute::ON);
+
+			geo->setStateSet(stateset);
+
+		}
+		else if (key == osgGA::GUIEventAdapter::KEY_Right)
+		{
+			osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile("Images/right.png");
+
+			std::cout << "right" << std::endl;
+
+			osg::StateSet* stateset = new osg::StateSet;
+
+			osg::Texture2D* texture = new osg::Texture2D;
+			texture->setImage(image);
+
+			stateset->setTextureAttributeAndModes(0, texture, osg::StateAttribute::ON);
+
+			geo->setStateSet(stateset);
+
+		}
+
+	}
+
+}
+
+class KeyboardEventHandler : public osgGA::GUIEventHandler
+{
+public:
+
+	KeyboardEventHandler(KeyboardModel* keyboardModel) :
+		_keyboardModel(keyboardModel) {}
+
+	virtual bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter&)
+	{
+		switch (ea.getEventType())
+		{
+			case(osgGA::GUIEventAdapter::KEYDOWN):
+			{
+				_keyboardModel->keyChange(ea.getKey(), ea.getUnmodifiedKey(), 1);
+				return true;
+			}
+			case(osgGA::GUIEventAdapter::KEYUP):
+			{
+				_keyboardModel->keyChange(ea.getKey(), ea.getUnmodifiedKey(), 0);
+				return true;
+			}
+
+			default:
+				return false;
+		}
+	}
+
+	osg::ref_ptr<KeyboardModel> _keyboardModel;
+
+};
+
 
 class PickHandler : public osgGA::GUIEventHandler
 {
@@ -72,10 +186,9 @@ protected:
 			// Nothing to pick.
 			return false;
 		double w(.05), h(.05);
-		osgUtil::PolytopeIntersector* picker =
-			new osgUtil::PolytopeIntersector(
-				osgUtil::Intersector::PROJECTION,
-				x - w, y - h, x + w, y + h);
+		//osgUtil::PolytopeIntersector* picker = new osgUtil::PolytopeIntersector(osgUtil::Intersector::PROJECTION, x - w, y - h, x + w, y + h);
+		
+		osgUtil::LineSegmentIntersector* picker = new osgUtil::LineSegmentIntersector(osgUtil::Intersector::PROJECTION, x, y);
 		osgUtil::IntersectionVisitor iv(picker);
 		viewer->getCamera()->accept(iv);
 		if (picker->containsIntersections())
@@ -83,7 +196,7 @@ protected:
 			const osg::NodePath& nodePath =
 				picker->getFirstIntersection().nodePath;
 
-			const osgUtil::PolytopeIntersector::Intersection intersection = picker->getFirstIntersection();
+			const osgUtil::LineSegmentIntersector::Intersection intersection = picker->getFirstIntersection();
 
 			/*std::cout << intersection.drawable->className() << std::endl;
 			std::cout << intersection.drawable->getName() << std::endl;*/
@@ -144,7 +257,7 @@ protected:
 
 	osg::Vec3Array* getAllPoints(const float radius, const int points, const osg::Vec3& center) {
 		auto array = new osg::Vec3Array();
-		const float ratio = (float(8.0 * osg::PI) / float(points));
+		const float ratio = (4 * float(2.0 * osg::PI) / float(points));
 		for (int i = 0; i < points; i++) {
 			const float angle = float(i) * ratio;
 			array->push_back(osg::Vec3(
@@ -394,31 +507,28 @@ protected:
 
 		//Quad underline
 		{
-			osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile("Images/hell.png");
-			if (!image) return NULL;
-
-			osg::Geometry* quad1 = new osg::Geometry();
+			osg::Geometry* underline = new osg::Geometry();
 
 			osg::Vec3 myCoords[] =
 			{
 				osg::Vec3(-10, 0, 0.2),
-				osg::Vec3(-10, 0, 0),
-				osg::Vec3(10, 0, 0),
+				osg::Vec3(-10, 0, -0.2),
+				osg::Vec3(10, 0, -0.2),
 				osg::Vec3(10, 0, 0.2),
 			};
 
 			int numCoords = sizeof(myCoords) / sizeof(osg::Vec3);
 
-			quad1->setVertexArray(new osg::Vec3Array(numCoords, myCoords));
+			underline->setVertexArray(new osg::Vec3Array(numCoords, myCoords));
 
 			osg::Vec4Array* colors = new osg::Vec4Array;
 			colors->push_back(osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
-			quad1->setColorArray(colors, osg::Array::BIND_OVERALL);
+			underline->setColorArray(colors, osg::Array::BIND_OVERALL);
 
 
 			osg::Vec3Array* normals = new osg::Vec3Array;
 			normals->push_back(osg::Vec3(0.0f, -1.0f, 0.0f));
-			quad1->setNormalArray(normals, osg::Array::BIND_OVERALL);
+			underline->setNormalArray(normals, osg::Array::BIND_OVERALL);
 
 			osg::Vec2 myTexCoords[] =
 			{
@@ -430,7 +540,7 @@ protected:
 
 			int numTexCoords = sizeof(myTexCoords) / sizeof(osg::Vec2);
 
-			quad1->setTexCoordArray(0, new osg::Vec2Array(numTexCoords, myTexCoords));
+			underline->setTexCoordArray(0, new osg::Vec2Array(numTexCoords, myTexCoords));
 
 			unsigned short myIndices[] =
 			{
@@ -440,22 +550,15 @@ protected:
 				2
 			};
 
+			underline->setName("underline");
+
 			int numIndices = sizeof(myIndices) / sizeof(unsigned short);
 
-			quad1->addPrimitiveSet(new osg::DrawElementsUShort(osg::PrimitiveSet::TRIANGLE_STRIP, numIndices, myIndices));
-
-			osg::StateSet* stateset = new osg::StateSet;
-
-			osg::Texture2D* texture = new osg::Texture2D;
-			texture->setImage(image);
-
-			stateset->setTextureAttributeAndModes(0, texture, osg::StateAttribute::ON);
-
-			quad1->setStateSet(stateset);
+			underline->addPrimitiveSet(new osg::DrawElementsUShort(osg::PrimitiveSet::TRIANGLE_STRIP, numIndices, myIndices));
 
 			osg::Geode* geode = new osg::Geode();
 
-			geode->addDrawable(quad1);
+			geode->addDrawable(underline);
 
 			geode->getOrCreateStateSet()->setMode(GL_LIGHTING,
 				osg::StateAttribute::OFF | osg::StateAttribute::PROTECTED);
@@ -472,8 +575,20 @@ int main(int argc, char** argv)
 	// create the view of the scene.
 	osgViewer::Viewer viewer;
 	viewer.setSceneData(createModel().get());
-	// add the pick handler
+
+	osg::Node* testNode = NULL;
+	testNode = dynamic_cast<osg::Node*>(viewer.getSceneData());
+
+	FindGeoNamedNode* visitor = new FindGeoNamedNode("underline");
+	testNode->accept(*visitor);
+
+	osg::Geometry* geom = visitor->getNode();
+
+	osg::ref_ptr<KeyboardModel> keyboardModel = new KeyboardModel(geom);
+
 	viewer.addEventHandler(new PickHandler);
+	viewer.addEventHandler(new KeyboardEventHandler(keyboardModel.get()));
+
 	return viewer.run();
 }
 
