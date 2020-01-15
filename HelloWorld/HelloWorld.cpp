@@ -5,8 +5,51 @@
 #include <osg/Geode>
 #include <osg/ShapeDrawable>
 #include <osgDB\ReadFile>
+#include <osg/MatrixTransform>
 
 osg::Group* root = new osg::Group;
+
+class UpdateUV : public osg::NodeCallback
+{
+public:
+	UpdateUV(osg::Geometry* geom, osg::ref_ptr<osg::Image> image, int direction) : _pos(-1.) {
+		geo = geom;
+		this->image = image;
+		xDirection = -1.5 * direction;
+	}
+	virtual void operator()(osg::Node* node, osg::NodeVisitor* nv)
+	{
+		osg::Vec2 myTexCoords[] =
+		{
+			osg::Vec2(_pos ,1),
+			osg::Vec2(_pos ,0),
+			osg::Vec2(_pos + xDirection, 0),
+			osg::Vec2(_pos + xDirection, 1)
+		};
+
+		int numTexCoords = sizeof(myTexCoords) / sizeof(osg::Vec2);
+
+		geo->setTexCoordArray(0, new osg::Vec2Array(numTexCoords, myTexCoords));
+
+
+		osg::StateSet* stateset = new osg::StateSet;
+
+		osg::Texture2D* texture = new osg::Texture2D;
+		texture->setImage(image);
+
+		stateset->setTextureAttributeAndModes(0, texture, osg::StateAttribute::ON);
+
+		geo->setStateSet(stateset);
+
+		_pos += 0.03;
+
+	}
+protected:
+	double _pos;
+	osg::Geometry* geo;
+	osg::ref_ptr<osg::Image> image;
+	int xDirection;
+};
 
 class FindGeoNamedNode :
 	public osg::NodeVisitor
@@ -62,39 +105,36 @@ protected:
 
 void KeyboardModel::keyChange(int key, int virtualKey, int value)
 {
+	osg::ref_ptr<osg::MatrixTransform> mt =	new osg::MatrixTransform;
+	mt->setName("h");
+	mt->setDataVariance(osg::Object::DYNAMIC);
+			
+	osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile("Images/left.png");
+
 	//KeyModelMap::iterator itr = _keyModelMap.find(virtualKey);
 	if (value)
 	{
 		if (key == osgGA::GUIEventAdapter::KEY_Left)
 		{
-			osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile("Images/left.png");
+			//root->removeChild(dynamic_cast<osg::Node*>(&FindGeoNamedNode("h")) );
 
 			std::cout << "left" << std::endl;
 
-			osg::StateSet* stateset = new osg::StateSet;
+			mt->setUpdateCallback(new UpdateUV(geo, image, -1));
 
-			osg::Texture2D* texture = new osg::Texture2D;
-			texture->setImage(image);
-
-			stateset->setTextureAttributeAndModes(0, texture, osg::StateAttribute::ON);
-
-			geo->setStateSet(stateset);
-
+			root->addChild(mt);
 		}
-		else if (key == osgGA::GUIEventAdapter::KEY_Right)
+		if (key == osgGA::GUIEventAdapter::KEY_Right)
 		{
-			osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile("Images/right.png");
+			//root->removeChild(dynamic_cast<osg::Node*>(&FindGeoNamedNode("h")));
+
+			//osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile("Images/left.png");
 
 			std::cout << "right" << std::endl;
 
-			osg::StateSet* stateset = new osg::StateSet;
+			mt->setUpdateCallback(new UpdateUV(geo, image, 1));
 
-			osg::Texture2D* texture = new osg::Texture2D;
-			texture->setImage(image);
-
-			stateset->setTextureAttributeAndModes(0, texture, osg::StateAttribute::ON);
-
-			geo->setStateSet(stateset);
+			root->addChild(mt);
 
 		}
 
@@ -175,16 +215,16 @@ public:
 		}
 	}
 protected:
-	// Store mouse xy location for button press & move events.
+
 	bool touched = false;
 	float _mX, _mY;
-	// Perform a pick operation.
+
 	bool pick(const double x, const double y,
 		osgViewer::Viewer* viewer)
 	{
 		if (!viewer->getSceneData())
-			// Nothing to pick.
 			return false;
+
 		double w(.05), h(.05);
 		//osgUtil::PolytopeIntersector* picker = new osgUtil::PolytopeIntersector(osgUtil::Intersector::PROJECTION, x - w, y - h, x + w, y + h);
 		
@@ -206,14 +246,13 @@ protected:
 			g = intersection.drawable->asGeometry();
 
 
-			if (intersection.drawable->getName() == "O1" || intersection.drawable->getName() == "O2") {
+			if (intersection.drawable->getName() == "O1") {
 				touched = !touched;
 				
 				if (touched) {
 					osg::Vec4Array* colors = new osg::Vec4Array;
 					colors->push_back(osg::Vec4(1.0f, 0.0f, 1.0f, 1.0f));
 					g->setColorArray(colors, osg::Array::BIND_OVERALL);
-
 				}
 				else if (!touched) {
 					osg::Vec4Array* colors = new osg::Vec4Array;
@@ -221,35 +260,6 @@ protected:
 					g->setColorArray(colors, osg::Array::BIND_OVERALL);
 				}
 			}
-			//	unsigned int idx = nodePath.size();
-			//	while (idx--)
-			//	{
-			//		// Find the LAST MatrixTransform in the node
-			//		// path; this will be the MatrixTransform
-			//		// to attach our callback to.
-			//		osg::MatrixTransform* mt =
-			//			dynamic_cast<osg::MatrixTransform*>(
-			//				nodePath[idx]);
-			//		if (mt == NULL)
-			//			continue;
-			//		// If we get here, we just found a
-			//		// MatrixTransform in the nodePath.
-			//		if (nodePath[nodePath.size()-1].valid())
-			//			// Clear the previous selected node's
-			//			// callback to make it stop spinning.
-			//			_selectedNode->setUpdateCallback(NULL);
-			//		_selectedNode = mt;
-			//			_selectedNode->setUpdateCallback();
-			//		break;
-			//	}
-			//	if (!_selectedNode.valid())
-			//		osg::notify() << "Pick failed." << std::endl;
-			//}
-			//else if (_selectedNode.valid())
-			//{
-			//	_selectedNode->setUpdateCallback(NULL);
-			//	_selectedNode = NULL;
-			//}
 			return true;
 		}
 	}
@@ -351,7 +361,7 @@ protected:
 			root->addChild(geode);
 		}
 
-		//First O
+		// O'O
 		{
 			osg::Geometry* o1 = createGeometry(1.0f, 50, osg::Vec3(-3.5, 0, 2.5));
 
@@ -365,11 +375,26 @@ protected:
 
 			o1->setName("O1");
 
+			osg::Matrix m;
 			osg::Geode* geode = new osg::Geode();
 
 			geode->addDrawable(o1);
 
-			root->addChild(geode);
+			{
+				osg::ref_ptr<osg::MatrixTransform> mt = new osg::MatrixTransform;
+				m.makeTranslate(0.f, 0.f, 0.f);
+				mt->setMatrix(m);
+				root->addChild(mt.get());
+				mt->addChild(geode);
+			}
+
+			{
+				osg::ref_ptr<osg::MatrixTransform> mt = new osg::MatrixTransform;
+				m.makeTranslate(7, 0, 0);
+				mt->setMatrix(m);
+				root->addChild(mt.get());
+				mt->addChild(geode);
+			}
 		}
 
 		//W
@@ -403,7 +428,7 @@ protected:
 		}
 
 		//Second O
-		{
+		/*{
 			osg::Geometry* o2 = createGeometry(1.0f, 50, osg::Vec3(3.5, 0, 2.5));
 
 			osg::Vec4Array* colors = new osg::Vec4Array;
@@ -422,7 +447,7 @@ protected:
 			geode->addDrawable(o2);
 
 			root->addChild(geode);
-		}
+		}*/
 
 		//Second quad with rld
 		{
@@ -507,13 +532,17 @@ protected:
 
 		//Quad underline
 		{
+
+			/*osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile("Images/right.png");
+			if (!image) return NULL;*/
+
 			osg::Geometry* underline = new osg::Geometry();
 
 			osg::Vec3 myCoords[] =
 			{
 				osg::Vec3(-10, 0, 0.2),
-				osg::Vec3(-10, 0, -0.2),
-				osg::Vec3(10, 0, -0.2),
+				osg::Vec3(-10, 0, -1),
+				osg::Vec3(10, 0, -1),
 				osg::Vec3(10, 0, 0.2),
 			};
 
@@ -556,6 +585,15 @@ protected:
 
 			underline->addPrimitiveSet(new osg::DrawElementsUShort(osg::PrimitiveSet::TRIANGLE_STRIP, numIndices, myIndices));
 
+			/*osg::StateSet* stateset = new osg::StateSet;
+
+			osg::Texture2D* texture = new osg::Texture2D;
+			texture->setImage(image);
+
+			stateset->setTextureAttributeAndModes(0, texture, osg::StateAttribute::ON);
+
+			underline->setStateSet(stateset);*/
+
 			osg::Geode* geode = new osg::Geode();
 
 			geode->addDrawable(underline);
@@ -591,4 +629,3 @@ int main(int argc, char** argv)
 
 	return viewer.run();
 }
-
